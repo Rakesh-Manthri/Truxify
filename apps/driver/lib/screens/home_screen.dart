@@ -15,6 +15,7 @@ import '../services/route_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common_widgets.dart';
 import 'destination_picker_screen.dart';
+import '../widgets/pulsing_location_dot.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -558,7 +559,7 @@ class _HomeScreenState extends State<HomeScreen> {
             Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const _PulsingLocationDot(),
+                const PulsingLocationDot(),
                 Container(
                   width: 1,
                   height: 12,
@@ -1130,64 +1131,6 @@ class _RouteCheckpointMarker extends StatelessWidget {
           color: TruxifyColors.accentDark,
         ),
       ),
-    );
-  }
-}
-
-class _PulsingLocationDot extends StatefulWidget {
-  const _PulsingLocationDot();
-
-  @override
-  State<_PulsingLocationDot> createState() => _PulsingLocationDotState();
-}
-
-class _PulsingLocationDotState extends State<_PulsingLocationDot>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 2),
-    )..repeat();
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _controller,
-      builder: (context, child) {
-        return Stack(
-          alignment: Alignment.center,
-          children: [
-            Container(
-              width: 14 + (16 * _controller.value),
-              height: 14 + (16 * _controller.value),
-              decoration: BoxDecoration(
-                color: TruxifyColors.success
-                    .withValues(alpha: 1.0 - _controller.value),
-                shape: BoxShape.circle,
-              ),
-            ),
-            Container(
-              width: 10,
-              height: 10,
-              decoration: const BoxDecoration(
-                color: TruxifyColors.success,
-                shape: BoxShape.circle,
-              ),
-            ),
-          ],
-        );
-      },
     );
   }
 }
