@@ -7,7 +7,7 @@ import '../models/app_models.dart';
 import '../theme/app_theme.dart';
 import '../data/mock_data.dart';
 import '../widgets/common_widgets.dart';
-import '../services/geocode_service.dart';
+import '../services/trip_service.dart';
 
 class TripsScreen extends StatefulWidget {
   const TripsScreen({super.key});
@@ -17,6 +17,14 @@ class TripsScreen extends StatefulWidget {
 }
 
 class _TripsScreenState extends State<TripsScreen> {
+  final TripService _tripService = TripService();
+
+  List<Map<String, dynamic>> _activeTrips = [];
+  List<Map<String, dynamic>> _tripItems = [];
+  List<Map<String, dynamic>> _tripStops = [];
+  List<Map<String, dynamic>> _routePoints = [];
+
+  bool _isLoadingTrips = true;
   int _selectedChipIndex = 0; // 0: All, 1: Active, 2: Completed, 3: Cancelled
   int _selectedSortIndex =
       0; // 0: Newest, 1: Oldest, 2: Highest, 3: Lowest, 4: By status
@@ -27,6 +35,108 @@ class _TripsScreenState extends State<TripsScreen> {
     'Completed',
     'Cancelled'
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadTrips();
+  }
+
+  Future<void> _loadTrips() async {
+    try {
+      final trips = await _tripService.fetchTrips();
+
+      List<Map<String, dynamic>> items = [];
+      List<Map<String, dynamic>> stops = [];
+      List<Map<String, dynamic>> routePoints = [];
+
+      if (trips.isNotEmpty) {
+        final tripDisplayId = trips.first['trip_display_id'].toString();
+
+        items = await _tripService.fetchTripItems(tripDisplayId);
+        debugPrint('Fetched trip items: ${items.length}');
+
+        stops = await _tripService.fetchTripStops(tripDisplayId);
+        debugPrint('Fetched trip stops: ${stops.length}');
+
+        routePoints = await _tripService.fetchRouteMapPoints(tripDisplayId);
+        debugPrint('Fetched route points: ${routePoints.length}');
+      }
+
+      debugPrint('Fetched trips: ${trips.length}');
+
+      setState(() {
+        _activeTrips = trips;
+        _tripItems = items;
+        _tripStops = stops;
+        _routePoints = routePoints;
+        _isLoadingTrips = false;
+      });
+    } catch (e) {
+      debugPrint("Failed to load trips: $e");
+
+      setState(() {
+        _isLoadingTrips = false;
+      });
+    }
+  }
+
+  Future<void> _completeCurrentStop() async {
+    final currentStop = _tripStops.firstWhere(
+      (stop) => stop['is_current'] == true,
+      orElse: () => {},
+    );
+
+    if (currentStop.isEmpty) {
+      return;
+    }
+
+    await _tripService.markStopCompleted(
+      currentStop['id'].toString(),
+      currentStop['trip_display_id'].toString(),
+    );
+    await _loadTrips();
+  }
+
+  TripStatusType _mapStatus(String? status) {
+    switch (status) {
+      case 'completed':
+        return TripStatusType.completed;
+      case 'cancelled':
+        return TripStatusType.cancelled;
+      case 'active':
+      default:
+        return TripStatusType.active;
+    }
+  }
+
+  List<Trip> _mapSupabaseTripsToUiTrips() {
+    return _activeTrips.map((row) {
+      return Trip(
+        route: row['route_label']?.toString() ?? 'Unknown route',
+        date: row['trip_date']?.toString() ?? '',
+        items: const [],
+        itemCount: row['distance']?.toString() ?? '',
+        distance: row['distance']?.toString() ?? '',
+        earnings: '₹${((row['net_earnings'] ?? 0) / 100).toStringAsFixed(0)}',
+        status: _mapStatus(row['status']?.toString()),
+        tripId: row['trip_display_id']?.toString() ?? '',
+        hash: '',
+        duration: row['duration']?.toString() ?? '',
+        endTime: '',
+        paymentBreakdown: PaymentBreakdown(
+          baseFreight:
+              '₹${((row['total_earnings'] ?? 0) / 100).toStringAsFixed(0)}',
+          fuelDeducted: '₹0',
+          tollDeducted: '₹0',
+          platformFee: '₹0',
+          netEarnings:
+              '₹${((row['net_earnings'] ?? 0) / 100).toStringAsFixed(0)}',
+        ),
+        tripItems: const [],
+      );
+    }).toList();
+  }
 
   List<Trip> _getFilteredAndSortedTrips() {
     List<Trip> trips = List.from(mockTrips);
@@ -231,7 +341,17 @@ class _TripsScreenState extends State<TripsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final trips = _getFilteredAndSortedTrips();
+    final allTrips = _activeTrips.isNotEmpty
+        ? _mapSupabaseTripsToUiTrips()
+        : _getFilteredAndSortedTrips();
+
+    final trips = _selectedChipIndex == 0
+        ? allTrips
+        : allTrips
+            .where((trip) =>
+                trip.status == _getStatusFromIndex(_selectedChipIndex))
+            .toList();
+    debugPrint('Supabase trips count: ${_activeTrips.length}');
 
     return SafeArea(
       child: Scaffold(
@@ -426,6 +546,55 @@ class _TripsScreenState extends State<TripsScreen> {
     );
   }
 
+  Widget _buildLiveStopsPreview() {
+    if (_tripStops.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 8),
+        if (_tripStops.any((stop) => stop['is_current'] == true))
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: _completeCurrentStop,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: TruxifyColors.accent,
+              ),
+              child: const Text('Mark Current Stop Completed'),
+            ),
+          ),
+        const SizedBox(height: 10),
+        Text(
+          'Delivery Stops',
+          style: GoogleFonts.dmSans(
+            fontSize: 12,
+            fontWeight: FontWeight.bold,
+            color: TruxifyColors.accent,
+          ),
+        ),
+        const SizedBox(height: 6),
+        ..._tripStops.map((stop) {
+          final isCompleted = stop['is_completed'] == true;
+          final isCurrent = stop['is_current'] == true;
+
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 4),
+            child: Text(
+              '${isCompleted ? "✅" : isCurrent ? "🔄" : "⏳"} ${stop['customer_name']} → ${stop['drop_location']}',
+              style: GoogleFonts.dmSans(
+                fontSize: 11,
+                color: Theme.of(context).colorScheme.onSurface,
+              ),
+            ),
+          );
+        }),
+      ],
+    );
+  }
+
   Widget _buildTripCard(BuildContext context, Trip trip) {
     Color statusColor;
     Color statusBgColor;
@@ -493,12 +662,8 @@ class _TripsScreenState extends State<TripsScreen> {
                       // Small route thumbnail (OSM)
                       SizedBox(
                         height: 86,
-                        child: FutureBuilder<List<ll.LatLng?>>(
-                          future: _resolveRoutePoints(trip.route),
-                          builder: (context, snap) {
-                            if (snap.connectionState != ConnectionState.done ||
-                                snap.data == null) {
-                              return Container(
+                        child: _routePoints.isEmpty
+                            ? Container(
                                 decoration: BoxDecoration(
                                   color: const Color(0xFFF0E8E8),
                                   borderRadius: BorderRadius.circular(8),
@@ -506,68 +671,74 @@ class _TripsScreenState extends State<TripsScreen> {
                                 child: const Center(
                                     child: Icon(Icons.map_outlined,
                                         color: Colors.grey)),
-                              );
-                            }
-
-                            final points = snap.data!;
-                            final start = points.isNotEmpty ? points[0] : null;
-                            final end = points.length > 1 ? points[1] : null;
-
-                            final center =
-                                (start ?? end) ?? ll.LatLng(22.9734, 78.6569);
-                            final zoom = 6.0;
-
-                            return ClipRRect(
-                              borderRadius: BorderRadius.circular(8),
-                              child: FlutterMap(
-                                options: MapOptions(
-                                  initialCenter: center,
-                                  initialZoom: zoom,
-                                  interactionOptions: const InteractionOptions(
-                                    flags: InteractiveFlag.none,
+                              )
+                            : ClipRRect(
+                                borderRadius: BorderRadius.circular(8),
+                                child: FlutterMap(
+                                  options: MapOptions(
+                                    initialCenter: ll.LatLng(
+                                      (_routePoints.first['latitude'] as num)
+                                          .toDouble(),
+                                      (_routePoints.first['longitude'] as num)
+                                          .toDouble(),
+                                    ),
+                                    initialZoom: 6.0,
+                                    interactionOptions:
+                                        const InteractionOptions(
+                                      flags: InteractiveFlag.none,
+                                    ),
                                   ),
-                                ),
-                                children: [
-                                  TileLayer(
-                                    urlTemplate:
-                                        'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                                    userAgentPackageName: 'com.truxify.driver',
-                                  ),
-                                  if (start != null || end != null)
-                                    MarkerLayer(
-                                      markers: [
-                                        if (start != null)
-                                          Marker(
-                                            point: start,
-                                            width: 8,
-                                            height: 8,
-                                            child: Container(
-                                              decoration: const BoxDecoration(
-                                                shape: BoxShape.circle,
-                                                color: TruxifyColors.accent,
-                                              ),
-                                            ),
-                                          ),
-                                        if (end != null)
-                                          Marker(
-                                            point: end,
-                                            width: 8,
-                                            height: 8,
-                                            child: Container(
-                                              decoration: const BoxDecoration(
-                                                shape: BoxShape.circle,
-                                                color: TruxifyColors.success,
-                                              ),
-                                            ),
-                                          ),
+                                  children: [
+                                    TileLayer(
+                                      urlTemplate:
+                                          'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                                      userAgentPackageName:
+                                          'com.truxify.driver',
+                                    ),
+                                    PolylineLayer(
+                                      polylines: [
+                                        Polyline(
+                                          points: _routePoints.map((point) {
+                                            return ll.LatLng(
+                                              (point['latitude'] as num)
+                                                  .toDouble(),
+                                              (point['longitude'] as num)
+                                                  .toDouble(),
+                                            );
+                                          }).toList(),
+                                          strokeWidth: 4,
+                                          color: TruxifyColors.accent,
+                                        ),
                                       ],
                                     ),
-                                ],
+                                    MarkerLayer(
+                                      markers: _routePoints.map((point) {
+                                        return Marker(
+                                          point: ll.LatLng(
+                                            (point['latitude'] as num)
+                                                .toDouble(),
+                                            (point['longitude'] as num)
+                                                .toDouble(),
+                                          ),
+                                          width: 12,
+                                          height: 12,
+                                          child: Container(
+                                            decoration: BoxDecoration(
+                                              shape: BoxShape.circle,
+                                              color: point['is_claimed'] == true
+                                                  ? TruxifyColors.success
+                                                  : TruxifyColors.accent,
+                                            ),
+                                          ),
+                                        );
+                                      }).toList(),
+                                    ),
+                                  ],
+                                ),
                               ),
-                            );
-                          },
-                        ),
                       ),
+                      const SizedBox(height: 8),
+                      _buildLiveStopsPreview(),
                       const SizedBox(height: 8),
                       // Top Row
                       Row(
@@ -685,22 +856,5 @@ class _TripsScreenState extends State<TripsScreen> {
         ),
       ),
     );
-  }
-
-  /// Resolve start and end coordinates for a route label like "Surat → Jaipur".
-  Future<List<ll.LatLng?>> _resolveRoutePoints(String routeLabel) async {
-    try {
-      final parts = routeLabel.split(RegExp(r'→|-|to'));
-      final start = parts.isNotEmpty ? parts[0].trim() : '';
-      final end = parts.length > 1 ? parts[1].trim() : '';
-
-      final results = await Future.wait([
-        GeocodeService.resolvePlace(start),
-        GeocodeService.resolvePlace(end)
-      ]);
-      return results;
-    } catch (_) {
-      return <ll.LatLng?>[null, null];
-    }
   }
 }
