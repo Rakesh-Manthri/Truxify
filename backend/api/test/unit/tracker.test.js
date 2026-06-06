@@ -34,7 +34,7 @@ vi.mock('../../src/config/db.js', () => ({
   },
 }));
 
-const { handleLocationPing, handleSubscribe, __testing } = await import('../../src/sockets/tracker.js');
+const { handleLocationPing, handleTrackingMessage, handleSubscribe, __testing } = await import('../../src/sockets/tracker.js');
 
 describe('tracker WebSocket telemetry authorization', () => {
   beforeEach(() => {
@@ -130,5 +130,47 @@ describe('tracker WebSocket telemetry authorization', () => {
     await handleSubscribe(ws, { driver_id: 'driver-owner' });
 
     expect(sentMessages).toEqual([{ status: 'subscribed', target: 'driver-owner' }]);
+  });
+});
+
+describe('tracker WebSocket heartbeat messages', () => {
+  it('responds to raw client ping messages without attempting JSON parsing', async () => {
+    const sentMessages = [];
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const ws = {
+      isAlive: false,
+      send(message) {
+        sentMessages.push(message);
+      },
+    };
+
+    await handleTrackingMessage(ws, 'ping');
+
+    expect(ws.isAlive).toBe(true);
+    expect(sentMessages).toEqual(['pong']);
+    expect(errorSpy).not.toHaveBeenCalled();
+
+    errorSpy.mockRestore();
+  });
+
+  it('keeps returning a JSON error for malformed non-heartbeat messages', async () => {
+    const sentMessages = [];
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const ws = {
+      send(message) {
+        sentMessages.push(JSON.parse(message));
+      },
+    };
+
+    await handleTrackingMessage(ws, 'not-json');
+
+    expect(sentMessages).toEqual([
+      {
+        error: 'Invalid JSON payload structure.',
+      },
+    ]);
+    expect(errorSpy).toHaveBeenCalledWith('WS Message parsing error:', expect.any(String));
+
+    errorSpy.mockRestore();
   });
 });
