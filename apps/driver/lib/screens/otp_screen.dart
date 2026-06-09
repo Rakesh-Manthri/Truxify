@@ -18,7 +18,6 @@ class _OtpScreenState extends State<OtpScreen> {
   late final List<TextEditingController> _controllers =
       List.generate(4, (_) => TextEditingController());
   late final List<FocusNode> _focusNodes = List.generate(4, (_) => FocusNode());
-  bool _verifying = false;
 
   @override
   void dispose() {
@@ -92,8 +91,8 @@ class _OtpScreenState extends State<OtpScreen> {
               OtpInputRow(controllers: _controllers, focusNodes: _focusNodes),
               const SizedBox(height: 24),
               PrimaryButton(
-                label: _verifying ? 'Verifying...' : 'Verify OTP',
-                onPressed: _verifying ? null : _verifyOtp,
+                label: 'Verify OTP',
+                onPressed: _verifyOtp,
               ),
             ],
           ),
