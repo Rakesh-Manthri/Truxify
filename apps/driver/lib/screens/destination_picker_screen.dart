@@ -286,20 +286,23 @@ class _DestinationPickerScreenState extends State<DestinationPickerScreen> {
                 separatorBuilder: (_, __) => const Divider(height: 1),
                 itemBuilder: (context, index) {
                   final suggestion = _suggestions[index];
-                  return ListTile(
-                    dense: true,
-                    leading: const Icon(
-                      Icons.place_rounded,
-                      color: TruxifyColors.accentDark,
-                    ),
-                    title: Text(
-                      suggestion.address,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    onTap: () => _setLocation(
-                      suggestion.point,
-                      address: suggestion.address,
+                  return Material(
+                    color: Colors.transparent,
+                    child: ListTile(
+                      dense: true,
+                      leading: const Icon(
+                        Icons.place_rounded,
+                        color: TruxifyColors.accentDark,
+                      ),
+                      title: Text(
+                        suggestion.address,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      onTap: () => _setLocation(
+                        suggestion.point,
+                        address: suggestion.address,
+                      ),
                     ),
                   );
                 },
