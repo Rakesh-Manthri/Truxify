@@ -255,8 +255,9 @@ create table if not exists orders (
 
   status               text not null default 'pending'
                        check (status in (
-                         'pending','truck_assigned','picked_up','in_transit',
-                         'arriving','delivered','cancelled','payment_released'
+                         'pending','truck_assigned','en_route_pickup','arrived_pickup',
+                         'picked_up','in_transit','arriving','delivered','cancelled',
+                         'payment_released'
                        )),
 
   -- Route
