@@ -150,7 +150,16 @@ class OrderService {
         .from('orders')
         .select()
         .eq('customer_id', userId)
-        .inFilter('status', ['pending', 'active', 'in_transit']);
+        .inFilter('status', [
+          'pending',
+          'active',
+          'truck_assigned',
+          'en_route_pickup',
+          'arrived_pickup',
+          'picked_up',
+          'in_transit',
+          'arriving'
+        ]);
 
     final orders = List<Map<String, dynamic>>.from(response);
 
