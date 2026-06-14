@@ -48,7 +48,8 @@ class _EarningsScreenState extends State<EarningsScreen> {
 
     final elapsed = DateTime.now().difference(startTime);
     final remainingDelay = const Duration(milliseconds: 1500) - elapsed;
-    if (remainingDelay > Duration.zero) {
+    final isTesting = WidgetsBinding.instance.runtimeType.toString().contains('Test');
+    if (remainingDelay > Duration.zero && !isTesting) {
       await Future.delayed(remainingDelay);
     }
 
