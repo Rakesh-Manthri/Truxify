@@ -1087,6 +1087,46 @@ describe('flushTelemetryBuffer - with MongoDB', () => {
     expect(buffer[1].driver_id).toBe('new-driver');
   });
 
+  it('caps retry re-queue depth to prevent geometric growth on persistent failures', async () => {
+    const insertMany = vi.fn().mockImplementation(async () => {
+      // Simulate new pings arriving to almost fill the buffer while DB write is active
+      const { __testing: t } = await import('../../src/sockets/tracker.js');
+      const mockNewRecords = Array.from({ length: 4995 }, (_, i) => ({ driver_id: `new-driver-${i}` }));
+      t.setTelemetryWriteBuffer(mockNewRecords);
+      throw new Error('transient write failure');
+    });
+    const collection = vi.fn().mockReturnValue({ insertMany });
+
+    vi.doMock('../../src/config/db.js', () => ({
+      mongoDb: { collection },
+      redisClient: null,
+      firebaseAdmin: null,
+      supabase: null,
+    }));
+
+    const { __testing: t } = await import('../../src/sockets/tracker.js');
+    const mockOldRecords = Array.from({ length: 10 }, (_, i) => ({ driver_id: `old-driver-${i}` }));
+    t.setTelemetryWriteBuffer(mockOldRecords);
+
+    const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await t.flushTelemetryBuffer();
+
+    const buffer = t.getTelemetryWriteBuffer();
+    // 5000 is MAX_BUFFER_SIZE. 4995 new records + 5 kept old records = 5000 records.
+    expect(buffer).toHaveLength(5000);
+    // The first 5 old records (indices 0 to 4) should be dropped, keeping only indices 5 to 9.
+    expect(buffer[0].driver_id).toBe('old-driver-5');
+    expect(buffer[4].driver_id).toBe('old-driver-9');
+    expect(buffer[5].driver_id).toBe('new-driver-0');
+
+    expect(consoleWarnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('[TRUXIFY BUFFER DROP] Buffer full: dropped 5 oldest records from retry batch.')
+    );
+
+    consoleWarnSpy.mockRestore();
+  });
+
   it('discards buffer on MongoDB validation error (code 121)', async () => {
     const validationError = new Error('Document failed validation');
     validationError.code = 121;
