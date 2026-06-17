@@ -3,30 +3,33 @@ import { supabase, mongoDb, redisClient, firebaseAdmin } from '../config/db.js';
 
 const router = express.Router();
 
+const CHECK_TIMEOUT_MS = 3000;
+
+function withTimeout(promise) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('timeout')), CHECK_TIMEOUT_MS)
+    ),
+  ]);
+}
+
 async function checkSupabase() {
   if (!supabase) return 'not_configured';
   try {
-    const { error } = await supabase.rpc('pg_sleep', { seconds: 0 }).throwOnError();
-    // fallback: simple select if rpc not available
-    if (error) {
-      const { error: e2 } = await supabase.from('profiles').select('id').limit(1);
-      if (e2) return 'failed';
-    }
-    return 'connected';
+    const { error } = await withTimeout(
+      supabase.from('profiles').select('id').limit(1)
+    );
+    return error ? 'failed' : 'connected';
   } catch {
-    try {
-      const { error } = await supabase.from('profiles').select('id').limit(1);
-      return error ? 'failed' : 'connected';
-    } catch {
-      return 'failed';
-    }
+    return 'failed';
   }
 }
 
 async function checkMongo() {
   if (!mongoDb) return 'not_configured';
   try {
-    await mongoDb.admin().ping();
+    await withTimeout(mongoDb.admin().ping());
     return 'connected';
   } catch {
     return 'failed';
@@ -36,7 +39,7 @@ async function checkMongo() {
 async function checkRedis() {
   if (!redisClient) return 'not_configured';
   try {
-    const reply = await redisClient.ping();
+    const reply = await withTimeout(redisClient.ping());
     return reply === 'PONG' ? 'connected' : 'failed';
   } catch {
     return 'failed';
@@ -51,6 +54,7 @@ function checkPolygon() {
   return process.env.POLYGON_RPC_URL ? 'configured' : 'not_configured';
 }
 
+// GET /api/health — full dependency check; returns 503 when a critical service fails
 router.get('/', async (req, res) => {
   const [supabaseStatus, mongoStatus, redisStatus] = await Promise.all([
     checkSupabase(),
@@ -77,6 +81,11 @@ router.get('/', async (req, res) => {
     services,
     uptime: process.uptime(),
   });
+});
+
+// GET /api/health/live — liveness probe; always 200 as long as the process is up
+router.get('/live', (req, res) => {
+  res.json({ status: 'ok', uptime: process.uptime() });
 });
 
 export default router;
